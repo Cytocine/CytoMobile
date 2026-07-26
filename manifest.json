@@ -3,7 +3,7 @@
   "short_name": "CytoSwing",
   "description": "Real-time EMA trend/pullback scanner and charting dashboard powered by Alpaca Markets data.",
   "id": "/",
-  "start_url": "./index.html",
+  "start_url": "/",
   "scope": "./",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
