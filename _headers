@@ -1,0 +1,40 @@
+# Cloudflare Pages custom headers
+# https://developers.cloudflare.com/pages/configuration/headers/
+
+# --- Service worker: must never be cached long-term, and must be served
+#     with a scope-allowing header (Cloudflare Pages serves it same-origin
+#     by default, this just makes the intent explicit and future-proof).
+/service-worker.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Service-Worker-Allowed: /
+  Content-Type: application/javascript; charset=utf-8
+
+/sw-register.js
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: application/javascript; charset=utf-8
+
+# --- Manifest ---
+/manifest.json
+  Cache-Control: no-cache, must-revalidate
+  Content-Type: application/manifest+json; charset=utf-8
+
+# --- App shell: short cache, always revalidate so updates propagate fast ---
+/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/
+  Cache-Control: no-cache, must-revalidate
+
+# --- Icons & screenshots: rarely change, cache aggressively ---
+/icons/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/screenshots/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# --- Security headers (global) ---
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: geolocation=(), camera=(), microphone=()

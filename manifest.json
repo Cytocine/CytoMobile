@@ -1,0 +1,61 @@
+{
+  "name": "CytoSwing — Full Cloud Cross",
+  "short_name": "CytoSwing",
+  "description": "Real-time EMA trend/pullback scanner and charting dashboard powered by Alpaca Markets data.",
+  "id": "/",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "any",
+  "background_color": "#080b10",
+  "theme_color": "#080b10",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/mobile-1.png",
+      "sizes": "540x1170",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Watchlist and sector heatmap on mobile"
+    },
+    {
+      "src": "screenshots/desktop-1.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Full trading dashboard on desktop"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Toggle Watchlist",
+      "short_name": "Watchlist",
+      "description": "Jump straight in and open the watchlist",
+      "url": "./index.html?view=watchlist",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
