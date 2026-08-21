@@ -687,7 +687,11 @@ let btShowOnChart = false;
 let btRunning = false;
 let btResult = { tf:null, perTicker:{}, allTrades:[], aggStats:null, tickerStats:[] };
 const cache = {};  // "AAPL|1Hour" -> {candles, signals, ts}
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// 24h: nothing auto-polls this cache, so the TTL only matters across page
+// reloads/reconnects. The Reload button always force-bypasses it, so a long
+// TTL just means "don't make me re-download 371 symbols every time I open
+// the tab" without ever blocking a manual refresh.
+const CACHE_TTL = 24 * 60 * 60 * 1000;
 
 function cacheGet(key) {
   const e = cache[key];
@@ -697,6 +701,64 @@ function cacheGet(key) {
 }
 function cacheSet(key, val) {
   cache[key] = { ...val, ts: Date.now() };
+  idbPutBars(key, cache[key].candles, cache[key].ts); // best-effort disk persistence
+}
+
+// ── Persistent local cache (IndexedDB) ──────────────────────────
+// Candle data is written through to IndexedDB so it survives page
+// reloads/browser restarts — the app can show last-known prices
+// instantly on open instead of re-fetching all symbols every time.
+// Only raw candles are stored (not the derived `signals`); signals
+// are cheap to recompute from candles + current params, which keeps
+// storage small and always correct if params change between sessions.
+const IDB_NAME = 'cytoswing-cache-v1';
+const IDB_STORE = 'bars';
+let _idbPromise = null;
+function idbOpen() {
+  if (_idbPromise) return _idbPromise;
+  _idbPromise = new Promise((resolve, reject) => {
+    if (!('indexedDB' in window)) { reject(new Error('no indexeddb')); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => { req.result.createObjectStore(IDB_STORE); };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _idbPromise;
+}
+function idbPutBars(key, candles, ts) {
+  idbOpen().then(db => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put({ candles, ts }, key);
+  }).catch(()=>{}); // best-effort — app works fine without persistence (e.g. private browsing)
+}
+function idbGetAllBars() {
+  return idbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const store = tx.objectStore(IDB_STORE);
+    const out = {};
+    const cursorReq = store.openCursor();
+    cursorReq.onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { out[cursor.key] = cursor.value; cursor.continue(); }
+      else resolve(out);
+    };
+    cursorReq.onerror = () => reject(cursorReq.error);
+  })).catch(()=>({}));
+}
+
+// Loads any previously-persisted candle data into the in-memory cache so
+// the dashboard can render last-known prices immediately on page load,
+// before any network request completes (or even before Connect is clicked).
+async function hydrateCacheFromDisk() {
+  const stored = await idbGetAllBars();
+  let n = 0;
+  Object.keys(stored).forEach(key => {
+    const entry = stored[key];
+    if (!entry || !entry.candles || !entry.candles.length) return;
+    cache[key] = { candles: entry.candles, signals: computeSignals(entry.candles), ts: entry.ts || 0 };
+    n++;
+  });
+  return n;
 }
 
 // ═══════════════════════════════════════════
@@ -1459,6 +1521,7 @@ function filterSidebarBySector(sector) {
   sidebarSort = 'sector';
   sectorFilter = (sectorFilter===sector) ? null : sector; // click again to clear
   buildSidebar();
+  buildMini();
   buildSectorHeatmap();
   renderSectorTickerList();
 }
@@ -1510,6 +1573,8 @@ function renderSectorTickerList() {
   box.querySelector('.sh-tl-close')?.addEventListener('click', () => {
     sectorFilter = null;
     document.querySelectorAll('.sh-cell').forEach(c => c.classList.remove('active'));
+    buildSidebar();
+    buildMini();
     renderSectorTickerList();
   });
 
@@ -1739,6 +1804,9 @@ function getMiniFilteredTickers() {
   });
 
   return sorted.filter(t=>{
+    // When a sector heatmap cell is active, restrict the scanner strip to
+    // that sector too — not just the sidebar/inline list under the heatmap.
+    if(sidebarSort==='sector' && sectorFilter && (SECTOR_MAP[t]||'Other')!==sectorFilter) return false;
     const{sc}=sInfo(t);
     if(miniFilter==='long')         return sc==='bull';
     if(miniFilter==='short')        return sc==='bear';
@@ -1758,11 +1826,13 @@ function buildMini() {
   });
 
   const filtered = getMiniFilteredTickers();
+  const sectorActive = sidebarSort==='sector' && sectorFilter;
 
   // Update counts
   const totalBuy6 = sorted.filter(t=>recentSignal(t,6).hasLong).length;
-  document.getElementById('mini-counts').textContent=
-    `${tickers.length} symbols · ${totalBuy6} 🔔 buy×6`;
+  document.getElementById('mini-counts').textContent = sectorActive
+    ? `${filtered.length}/${tickers.length} · ${sectorFilter.toUpperCase()} · ${totalBuy6} 🔔 buy×6`
+    : `${tickers.length} symbols · ${totalBuy6} 🔔 buy×6`;
 
   filtered.forEach(t=>{
     const{ok,sc}=sInfo(t);
@@ -2085,7 +2155,10 @@ async function doConnect(k, s) {
   apiKey=k; apiSecret=s;
   setSt('loading','VERIFYING…');
   document.getElementById('btn-connect').disabled=true;
-  Object.keys(cache).forEach(k=>delete cache[k]);
+  // Force one real network call to verify the key (bypass cache for just
+  // this ticker) instead of wiping everything — cached data for the rest
+  // of the watchlist stays put so reconnecting doesn't re-download it all.
+  delete cache[tickers[0]+'|'+timeframe];
   try {
     await fetchBars(tickers[0], timeframe);
     connected=true;
@@ -2126,8 +2199,12 @@ document.getElementById('btn-forget').addEventListener('click', ()=>{
   setCredsCollapsed(false);
 });
 
-// Auto-connect on page load if keys are saved
+// Load any previously-cached candle data from disk, then auto-connect if
+// keys are saved. Cached prices/charts render immediately from this, even
+// before Alpaca responds (or even if the user never reconnects at all).
 (async ()=>{
+  const n = await hydrateCacheFromDisk();
+  if (n) refresh();
   const {k, s} = loadCredentials();
   if(k && s){
     document.getElementById('api-key').value = k;
@@ -2588,6 +2665,7 @@ document.querySelectorAll('.sort-btn').forEach(btn=>{
     if(btn.dataset.sort!=='sector') sectorFilter=null;
     sidebarSort=btn.dataset.sort;
     buildSidebar();
+    buildMini();
     buildSectorHeatmap();
     renderSectorTickerList();
   });
